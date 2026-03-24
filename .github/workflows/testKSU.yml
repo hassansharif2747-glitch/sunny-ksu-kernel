@@ -9,7 +9,6 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -34,11 +33,9 @@ jobs:
       - name: Integrate KSU Next Driver
         run: |
           cp -r KernelSU-Next/kernel sunny/drivers/kernelsu
-
           if ! grep -q "kernelsu" sunny/drivers/Kconfig; then
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' sunny/drivers/Kconfig
           fi
-
           if ! grep -q "kernelsu" sunny/drivers/Makefile; then
             echo 'obj-$(CONFIG_KSU) += kernelsu/' >> sunny/drivers/Makefile
           fi
@@ -48,157 +45,142 @@ jobs:
           KERNEL_DIR: sunny
         run: |
           cat > /tmp/patch_ksu.py << 'PYEOF'
-import re
-import os
+          import re
+          import os
 
-KERNEL = os.path.join(os.environ.get("GITHUB_WORKSPACE", os.getcwd()), os.environ.get("KERNEL_DIR", "sunny"))
+          KERNEL = os.path.join(os.environ.get("GITHUB_WORKSPACE", os.getcwd()), os.environ.get("KERNEL_DIR", "sunny"))
 
-def insert_after_includes(content, decl):
-    matches = list(re.finditer(r'^#include\s+[<"][^>"]+[>"]\s*$', content, re.MULTILINE))
-    if not matches:
-        return content
-    last = matches[-1]
-    insert_pos = last.end()
-    return content[:insert_pos] + "\n" + decl + content[insert_pos:]
+          def insert_after_includes(content, decl):
+              matches = list(re.finditer(r'^#include\s+[<"][^>"]+[>"]\s*$', content, re.MULTILINE))
+              if not matches:
+                  return content
+              last = matches[-1]
+              insert_pos = last.end()
+              return content[:insert_pos] + "\n" + decl + content[insert_pos:]
 
-# fs/exec.c
-path = f"{KERNEL}/fs/exec.c"
-with open(path) as f:
-    content = f.read()
+          # fs/exec.c
+          path = f"{KERNEL}/fs/exec.c"
+          with open(path) as f:
+              content = f.read()
 
-if "ksu_handle_execveat" not in content:
-    decl = (
-        "\n#ifdef CONFIG_KSU\n"
-        "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
-        "                               void *argv, void *envp, int *flags);\n"
-        "#endif\n"
-    )
-    content = insert_after_includes(content, decl)
-    hook = (
-        "\n\t#ifdef CONFIG_KSU\n"
-        "\tksu_handle_execveat(&fd, &filename, argv, envp, &flags);\n"
-        "\t#endif\n"
-    )
-    content = re.sub(
-        r'(static int do_execveat_common\(int fd, struct filename \*filename,\n.*?int flags\)\n\{)',
-        r'\1' + hook,
-        content, count=1, flags=re.DOTALL
-    )
-    with open(path, "w") as f:
-        f.write(content)
-    print("fs/exec.c patched")
-else:
-    print("fs/exec.c already patched")
+          if "ksu_handle_execveat" not in content:
+              decl = (
+                  "\n#ifdef CONFIG_KSU\n"
+                  "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
+                  "                               void *argv, void *envp, int *flags);\n"
+                  "#endif\n"
+              )
+              content = insert_after_includes(content, decl)
+              hook = (
+                  "\n\t#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_execveat(&fd, &filename, argv, envp, &flags);\n"
+                  "\t#endif\n"
+              )
+              content = re.sub(
+                  r'(static int do_execveat_common\(int fd, struct filename \*filename,\n.*?int flags\)\n\{)',
+                  r'\1' + hook,
+                  content, count=1, flags=re.DOTALL
+              )
+              with open(path, "w") as f:
+                  f.write(content)
+              print("fs/exec.c patched")
 
-# fs/open.c
-path = f"{KERNEL}/fs/open.c"
-with open(path) as f:
-    content = f.read()
+          # fs/open.c
+          path = f"{KERNEL}/fs/open.c"
+          with open(path) as f:
+              content = f.read()
 
-if "ksu_handle_faccessat" not in content:
-    decl = (
-        "\n#ifdef CONFIG_KSU\n"
-        "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
-        "                                int *mode);\n"
-        "#endif\n"
-    )
-    content = insert_after_includes(content, decl)
-    hook = (
-        "\n\t#ifdef CONFIG_KSU\n"
-        "\tksu_handle_faccessat(&dfd, &filename, &mode);\n"
-        "\t#endif\n"
-    )
-    content = re.sub(
-        r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)',
-        r'\1' + hook,
-        content, count=1, flags=re.DOTALL
-    )
-    with open(path, "w") as f:
-        f.write(content)
-    print("fs/open.c patched")
-else:
-    print("fs/open.c already patched")
+          if "ksu_handle_faccessat" not in content:
+              decl = (
+                  "\n#ifdef CONFIG_KSU\n"
+                  "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
+                  "                                 int *mode);\n"
+                  "#endif\n"
+              )
+              content = insert_after_includes(content, decl)
+              hook = (
+                  "\n\t#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_faccessat(&dfd, &filename, &mode);\n"
+                  "\t#endif\n"
+              )
+              content = re.sub(
+                  r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)',
+                  r'\1' + hook,
+                  content, count=1, flags=re.DOTALL
+              )
+              with open(path, "w") as f:
+                  f.write(content)
+              print("fs/open.c patched")
 
-# fs/read_write.c
-path = f"{KERNEL}/fs/read_write.c"
-with open(path) as f:
-    content = f.read()
+          # fs/read_write.c
+          path = f"{KERNEL}/fs/read_write.c"
+          with open(path) as f:
+              content = f.read()
 
-if "ksu_handle_vfs_read" not in content:
-    decl = (
-        "\n#ifdef CONFIG_KSU\n"
-        "extern int ksu_handle_vfs_read(struct file **file_ptr,\n"
-        "                               char __user **buf_ptr,\n"
-        "                               size_t *count_ptr, loff_t **pos);\n"
-        "#endif\n"
-    )
-    content = insert_after_includes(content, decl)
-    hook = (
-        "\n\t#ifdef CONFIG_KSU\n"
-        "\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n"
-        "\t#endif\n"
-    )
-    content = re.sub(
-        r'(ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)\n\{)',
-        r'\1' + hook,
-        content, count=1, flags=re.DOTALL
-    )
-    with open(path, "w") as f:
-        f.write(content)
-    print("fs/read_write.c patched")
-else:
-    print("fs/read_write.c already patched")
+          if "ksu_handle_vfs_read" not in content:
+              decl = (
+                  "\n#ifdef CONFIG_KSU\n"
+                  "extern int ksu_handle_vfs_read(struct file **file_ptr,\n"
+                  "                               char __user **buf_ptr,\n"
+                  "                               size_t *count_ptr, loff_t **pos);\n"
+                  "#endif\n"
+              )
+              content = insert_after_includes(content, decl)
+              hook = (
+                  "\n\t#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n"
+                  "\t#endif\n"
+              )
+              content = re.sub(
+                  r'(ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)\n\{)',
+                  r'\1' + hook,
+                  content, count=1, flags=re.DOTALL
+              )
+              with open(path, "w") as f:
+                  f.write(content)
+              print("fs/read_write.c patched")
 
-# fs/stat.c
-path = f"{KERNEL}/fs/stat.c"
-with open(path) as f:
-    content = f.read()
+          # fs/stat.c
+          path = f"{KERNEL}/fs/stat.c"
+          with open(path) as f:
+              content = f.read()
 
-if "ksu_handle_stat" not in content:
-    decl = (
-        "\n#ifdef CONFIG_KSU\n"
-        "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
-        "                           int *flag);\n"
-        "#endif\n"
-    )
-    content = insert_after_includes(content, decl)
-    hook = (
-        "\n\t#ifdef CONFIG_KSU\n"
-        "\tksu_handle_stat(&dfd, &filename, &flag);\n"
-        "\t#endif\n"
-    )
-    content = re.sub(
-        r'(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{)',
-        r'\1' + hook,
-        content, count=1, flags=re.DOTALL
-    )
-    with open(path, "w") as f:
-        f.write(content)
-    print("fs/stat.c patched")
-else:
-    print("fs/stat.c already patched")
+          if "ksu_handle_stat" not in content:
+              decl = (
+                  "\n#ifdef CONFIG_KSU\n"
+                  "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
+                  "                           int *flag);\n"
+                  "#endif\n"
+              )
+              content = insert_after_includes(content, decl)
+              hook = (
+                  "\n\t#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_stat(&dfd, &filename, &flag);\n"
+                  "\t#endif\n"
+              )
+              content = re.sub(
+                  r'(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{)',
+                  r'\1' + hook,
+                  content, count=1, flags=re.DOTALL
+              )
+              with open(path, "w") as f:
+                  f.write(content)
+              print("fs/stat.c patched")
 
-print("\nAll KSU Next hooks applied!")
-PYEOF
+          print("\nAll KSU Next hooks applied!")
+          PYEOF
           python3 /tmp/patch_ksu.py
 
       - name: Enable KSU in Defconfig
         run: |
-          DEFCONFIG=$(find sunny/arch/arm64/configs \( -name "*neternels*" \
-            -o -name "*sunny*" \
-            -o -name "*mojito*" \) 2>/dev/null | head -1)
-
+          DEFCONFIG=$(find sunny/arch/arm64/configs \( -name "*neternels*" -o -name "*sunny*" -o -name "*mojito*" \) 2>/dev/null | head -1)
           if [ -z "$DEFCONFIG" ]; then
-            echo "Available defconfigs:"
             find sunny/arch/arm64/configs -name "*_defconfig"
             exit 1
           fi
-
-          echo "Using: $DEFCONFIG"
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           echo "CONFIG_KSU=y" >> "$DEFCONFIG"
           echo "CONFIG_KSU_DEBUG=n" >> "$DEFCONFIG"
-          echo "KSU enabled in defconfig."
 
       - name: Build Kernel
         run: |
@@ -209,14 +191,10 @@ PYEOF
       - name: Verify Output
         run: |
           ZIP=$(find sunny/anykernel3-sunny -name "*.zip" 2>/dev/null | head -1)
-
           if [ -z "$ZIP" ]; then
-            echo "ERROR: No zip found in anykernel3-sunny!"
             tail -80 /home/runner/build.log
             exit 1
           fi
-
-          echo "Found zip: $ZIP"
           echo "ZIPPATH=$ZIP" >> $GITHUB_ENV
 
       - name: Upload Flashable Zip
